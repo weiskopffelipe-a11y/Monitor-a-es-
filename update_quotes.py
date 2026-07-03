@@ -13,13 +13,14 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
 
 HTML_PATH = "index.html"
-CHUNK_SIZE = 40
+CHUNK_SIZE = 1  # o plano gratuito do brapi.dev só aceita 1 ativo por requisição
 BRAPI_TOKEN = os.environ.get("BRAPI_TOKEN", "").strip()
 
 
@@ -51,12 +52,12 @@ def fetch_quotes(tickers):
     """Busca cotações em lotes. Retorna dict ticker -> (preco, nome)."""
     results = {}
     headers = {"Authorization": f"Bearer {BRAPI_TOKEN}"} if BRAPI_TOKEN else {}
-    for group in chunk(tickers, CHUNK_SIZE):
+    for i, group in enumerate(chunk(tickers, CHUNK_SIZE)):
         url = f"https://brapi.dev/api/quote/{','.join(group)}"
         try:
             resp = requests.get(url, headers=headers, timeout=30)
             if resp.status_code != 200:
-                print(f"  aviso: lote falhou com status {resp.status_code}: {group[:3]}...")
+                print(f"  aviso: {group[0]} falhou com status {resp.status_code}")
                 continue
             data = resp.json()
             for item in data.get("results", []):
@@ -66,7 +67,10 @@ def fetch_quotes(tickers):
                 if symbol and isinstance(price, (int, float)):
                     results[symbol] = (round(float(price), 2), name)
         except Exception as e:
-            print(f"  aviso: erro no lote {group[:3]}...: {e}")
+            print(f"  aviso: erro em {group[0]}: {e}")
+        time.sleep(0.25)  # pequena pausa entre chamadas, gentileza com a API
+        if (i + 1) % 30 == 0:
+            print(f"  progresso: {i + 1}/{len(tickers)} tickers consultados...")
     return results
 
 
