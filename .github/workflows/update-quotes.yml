@@ -4,13 +4,9 @@ on:
 
   schedule:
 
-    # 21:15 UTC = 18:15 em Brasília (BRT, sem horário de verão), de segunda a sexta.
-
-    # A B3 fecha às 17h55, então já dá margem pro preço de fechamento estar disponível.
-
     - cron: '15 21 * * 1-5'
 
-  workflow_dispatch: {}   # permite clicar em "Run workflow" manualmente a qualquer hora
+  workflow_dispatch: {}
 
 permissions:
 
@@ -46,6 +42,8 @@ jobs:
 
           BRAPI_TOKEN: ${{ secrets.BRAPI_TOKEN }}
 
+          FINNHUB_TOKEN: ${{ secrets.FINNHUB_TOKEN }}
+
         run: python update_quotes.py
 
       - name: Publicar mudança (se houver)
@@ -58,6 +56,8 @@ jobs:
 
           git add index.html
 
-          git diff --staged --quiet && echo "Nada mudou hoje." || git commit -m "Atualiza cotações $(date -u +%d/%m/%Y)"
+          git diff --staged --quiet && echo "Nada mudou hoje." || git commit -m "Atualiza cotacoes $(date -u +%d/%m/%Y)"
 
           git push
+
+```  [oai_citation:0‡update-quotes.yml](sediment://file_00000000b364720eae7eed5b9a9a5e60)
