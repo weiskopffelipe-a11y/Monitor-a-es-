@@ -60,6 +60,27 @@ def extract_current_tickers(html):
     return current
 
 
+def extract_current_dividends(html):
+    m = re.search(r"const SEED_DIVIDENDS = (\{.*?\});", html, re.DOTALL)
+    if not m:
+        return {}
+    try:
+        # o objeto é JSON-compatível (arrays de [string, number]), só sem aspas na chave externa
+        raw = re.sub(r"([A-Z0-9]+):", r'"\1":', m.group(1))
+        return json.loads(raw)
+    except Exception as e:
+        print(f"  aviso: não consegui reler SEED_DIVIDENDS existente, começando do zero: {e}")
+        return {}
+
+
+def build_seed_dividends_js(merged):
+    parts = []
+    for ticker in sorted(merged.keys()):
+        entries = ",".join(f'["{d}",{r}]' for d, r in merged[ticker])
+        parts.append(f'{ticker}:[{entries}]')
+    return "const SEED_DIVIDENDS = {" + ",".join(parts) + "};"
+
+
 def fetch_usd_brl_rate():
     """Busca a cotação USD->BRL na brapi.dev. Se falhar, devolve None (chamador decide o fallback)."""
     headers = {"Authorization": f"Bearer {BRAPI_TOKEN}"} if BRAPI_TOKEN else {}
@@ -76,12 +97,19 @@ def fetch_usd_brl_rate():
 
 
 def fetch_b3_quotes(tickers):
-    """1 ativo por requisição (limite do plano gratuito do brapi.dev)."""
+    """1 ativo por requisição (limite do plano gratuito do brapi.dev).
+    Retorna (precos, dividendos) - dividendos vem junto na mesma chamada (dividends=true),
+    sem gastar requisições extras."""
     results = {}
+    dividends = {}
     headers = {"Authorization": f"Bearer {BRAPI_TOKEN}"} if BRAPI_TOKEN else {}
     for i, ticker in enumerate(tickers):
         try:
-            resp = requests.get(f"https://brapi.dev/api/quote/{ticker}", headers=headers, timeout=30)
+            resp = requests.get(
+                f"https://brapi.dev/api/quote/{ticker}",
+                params={"dividends": "true"},
+                headers=headers, timeout=30,
+            )
             if resp.status_code != 200:
                 print(f"  aviso: {ticker} (B3) falhou com status {resp.status_code}")
                 continue
@@ -92,12 +120,23 @@ def fetch_b3_quotes(tickers):
                 name = item.get("shortName") or item.get("longName") or symbol
                 if symbol and isinstance(price, (int, float)):
                     results[symbol] = (round(float(price), 2), name)
+
+                cash_divs = (item.get("dividendsData") or {}).get("cashDividends") or []
+                parsed = []
+                for d in cash_divs:
+                    pay_date = d.get("paymentDate")
+                    rate = d.get("rate")
+                    if pay_date and isinstance(rate, (int, float)):
+                        parsed.append((pay_date[:10], round(float(rate), 6)))
+                if symbol and parsed:
+                    parsed.sort(key=lambda x: x[0])
+                    dividends[symbol] = parsed[-24:]  # guarda só os últimos 24 pagamentos por ativo
         except Exception as e:
             print(f"  aviso: erro em {ticker} (B3): {e}")
         time.sleep(0.25)
         if (i + 1) % 40 == 0:
             print(f"  progresso B3: {i + 1}/{len(tickers)}...")
-    return results
+    return results, dividends
 
 
 def fetch_us_quotes(tickers, usd_brl_rate):
@@ -177,33 +216,41 @@ def main():
 
     html = load_html()
     current = extract_current_tickers(html)
+    current_dividends = extract_current_dividends(html)
     all_tickers = set(current.keys())
     print(f"Tickers na base local: {len(all_tickers)}")
 
     us_tickers = all_tickers & US_TICKERS
     crypto_tickers = all_tickers & CRYPTO_COINS
-    b3_tickers = all_tickers - US_TICKERS - CRYPTO_COINS
+    b3_tickers = all_tickers - US_TICKERS - CRYPTO_COINS  # inclui ações B3 e BDRs
 
-    print(f"  B3: {len(b3_tickers)} | EUA: {len(us_tickers)} | Cripto: {len(crypto_tickers)}")
+    print(f"  B3+BDR: {len(b3_tickers)} | EUA: {len(us_tickers)} | Cripto: {len(crypto_tickers)}")
 
     usd_brl_rate = fetch_usd_brl_rate() or 5.17  # fallback aproximado se a busca de câmbio falhar
     print(f"Câmbio USD/BRL usado: {usd_brl_rate}")
 
+    b3_prices, b3_dividends = fetch_b3_quotes(sorted(b3_tickers))
     fetched = {}
-    fetched.update(fetch_b3_quotes(sorted(b3_tickers)))
+    fetched.update(b3_prices)
     fetched.update(fetch_us_quotes(us_tickers, usd_brl_rate))
     fetched.update(fetch_crypto_quotes(crypto_tickers))
 
     print(f"Cotações obtidas com sucesso: {len(fetched)} de {len(all_tickers)}")
+    print(f"Proventos obtidos: {len(b3_dividends)} ativos com pagamentos registrados")
 
     # Mescla: usa o valor novo quando disponível, mantém o antigo como fallback
     merged = dict(current)
     merged.update(fetched)
 
+    merged_dividends = dict(current_dividends)
+    merged_dividends.update(b3_dividends)
+
     new_seed_js = build_seed_quotes_js(merged)
+    new_dividends_js = build_seed_dividends_js(merged_dividends)
     today = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y")
 
     html = re.sub(r"const SEED_QUOTES=\{.*?\};", new_seed_js, html, flags=re.DOTALL)
+    html = re.sub(r"const SEED_DIVIDENDS = \{.*?\};", new_dividends_js, html, flags=re.DOTALL)
     html = re.sub(r"const SEED_DATE = '.*?';", f"const SEED_DATE = '{today}';", html)
 
     with open(HTML_PATH, "w", encoding="utf-8") as f:
