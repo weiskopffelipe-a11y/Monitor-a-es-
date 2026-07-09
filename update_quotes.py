@@ -39,6 +39,10 @@ CRYPTO_COINS = {
     "BTC", "ETH", "BNB", "XRP", "SOL", "DOGE", "ADA", "TRX", "LINK", "AVAX",
     "DOT", "MATIC", "LTC", "SHIB", "BCH", "UNI", "ATOM", "XLM", "ETC", "FIL",
     "APT", "ARB", "OP", "NEAR", "ICP",
+    "MKR", "AAVE", "SNX", "CRV", "LDO", "SUI", "SEI", "TIA", "INJ", "RUNE",
+    "GRT", "SAND", "MANA", "AXS", "APE", "FTM", "ALGO", "VET", "HBAR", "EGLD",
+    "FLOW", "XTZ", "EOS", "THETA", "KAVA", "ZEC", "DASH", "XMR", "CAKE", "GALA",
+    "CHZ", "COMP", "YFI", "ZIL", "TON", "PYTH", "JUP", "PEPE", "BONK", "WIF", "FLOKI",
 }
 
 
